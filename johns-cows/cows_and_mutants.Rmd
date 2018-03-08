@@ -1,0 +1,97 @@
+---
+title: "Cows and Mutants"
+author: "Sidharth Gupta"
+date: \today
+output:
+   html_document:
+    css: css/code.css
+    highlight: default
+    citation_package:
+    keep_tex: false
+    fig_caption: true
+    latex_engine: pdflatex
+runtime: shiny
+fontsize: 11pt
+geometry: margin=1ine
+header-includes:
+- \usepackage{indentfirst}
+- \usepackage{graphicx}
+- \usepackage{geometry}
+- \usepackage{subfigure}
+- \usepackage{amsmath}
+- \usepackage{listings}
+- \usepackage{tikz}
+- \usetikzlibrary{matrix}
+---
+
+```{r setUp, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+library(rstan)
+library(dplyr)
+library(magrittr)
+library(gridExtra)
+library(ggplot2)
+library(bayesplot)
+```
+## Question
+Farmer Jöns has a huge number of cows. Due to a recent radioactive leak in a nearby power plant he fears that some of them have become mutant cows. Jöns is interested in measuring the effectiveness of a diet on normal cows, but not on mutant cows (that might produce excessive amounts of milk, or nearly no milk at all!). The following data set contains the amount of milk for cows on a diet and cows on normal diet:
+
+```{r}
+diet_milk <- c(651, 679, 374, 601, 4000, 401, 609, 767, 3890, 704, 679)
+normal_milk <- c(798, 1139, 529, 609, 553, 743, 3,151, 544, 488, 15, 257, 692, 678, 675, 538)
+```
+
+Some of the data points might come from mutant cows (aka outliers).
+
+Jöns now wants to know: Was the diet any good, does it results in better milk production for non-mutant cows?
+
+## Solution
+
+Since I was already using the student-t prior on the last problem that should model the outliers:
+
+```{r stan, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE, results='hide', echo=TRUE}
+    fit.stan.diet = stan("./cows_and_milk.stan", data = list(
+                                                             milk=diet_milk,
+                                                             N = length(diet_milk)),
+                                                             iter=5000,
+                                                             chains=4,
+                                                             cores=4
+    )
+    fit.stan.normal = stan("./cows_and_milk.stan", data = list(
+                                                             milk=normal_milk,
+                                                             N = length(normal_milk)),
+                                                             iter=5000,
+                                                             chains=4,
+                                                             cores=4
+    )
+```
+
+Lets look at some pictures and see how the posterior looks like
+```{r ppc, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE }
+sims.diet = data.frame(as.matrix(fit.stan.diet))
+sims.normal = data.frame(as.matrix(fit.stan.normal))
+summary.df = rbind(sims.diet %>% do(data.frame(y='diet', min = quantile(.$mu, 0.05), max = quantile(.$mu, 0.95), x = mean(.$mu))), 
+              (sims.normal %>% do(data.frame(y='normal', min = quantile(.$mu, 0.05), max = quantile(.$mu, 0.95), x = mean(.$mu)))))
+sims.diff = data.frame(x=sims.diet$mu - sims.normal$mu)
+ggplot(summary.df) + geom_errorbarh(aes(x=x, xmin=min, xmax=max, y=y, color=y)) + geom_point(aes(x=x, y=y, color=y))
+ggplot() + geom_density(data=sims.diet, aes(x = mu, color='diet')) + geom_density(data=sims.normal, aes(x = mu, color="normal")) 
+
+```
+There seems to be some evidence of the diet working better.
+
+One good idea is to create differences from the 2 posterior samples. Transformations like sum, differences of posterior
+variables of similarly distributed variables makes intuitive sense as it will have similar distribution.
+Looking at the posterior distribution of the differences in the mean: 
+
+```{r}
+
+data.frame(x=sims.diet$mu - sims.normal$mu) %>%
+	dplyr::summarize(mean(x), median(x))
+data.frame(x=sims.diet$mu - sims.normal$mu) %>%
+    mean(sims.diet$mu > sims.normal$mu)
+
+ggplot() + geom_density(aes(x = x)) +
+    geom_vline(mapping=aes(xintercept=mean(x), color='mean'), alpha = 0.5) +
+    geom_vline(mapping=aes(xintercept=median(x), color='median'), alpha =0.5)
+
+```
+

@@ -1,0 +1,181 @@
+---
+title: "Bowling"
+author: "Sidharth Gupta"
+date: \today
+output:
+   html_document:
+    css: css/code.css
+    highlight: default
+    citation_package:
+    keep_tex: false
+    fig_caption: true
+    latex_engine: pdflatex
+runtime: shiny
+fontsize: 11pt
+geometry: margin=1ine
+header-includes:
+- \usepackage{indentfirst}
+- \usepackage{graphicx}
+- \usepackage{geometry}
+- \usepackage{subfigure}
+- \usepackage{amsmath}
+- \usepackage{listings}
+- \usepackage{tikz}
+- \usetikzlibrary{matrix}
+---
+
+\vspace{0.25in}
+The original bowling model is simple we have 2 frames in one go. We knock down as many pins as we can in the first frame and then if some are left we knock down some more. We are given some data of a sequence of frames(called a roll). We are given the PMF of the dropping X pins as follows:
+
+$$ P(X=x|\gamma, n) = \frac{F(\gamma+x)}{F(n+\gamma+2) * F(\gamma+1)} $$
+
+Where gamma can be a constant or can come from some distribution. X $\in$ 1:10 
+
+I wanted to demonstrate a few points in this tutorial with a toy example. So here is the task. Given a fixed `gamma` and some data: 
+
+1. Model the Posterior density of the gamma parameters as well as the posterior predictive density of the rolls. 
+    a. Make some inferences about the confidence in the data.
+2. Learn an invaluable technique of generating data using some model and then fitting your model to recover the parameters.
+3. Make a point about Bayesian vs Frequentism thats more than pedantic.
+4. Learn a bit of stan modelling.
+5. When gamma is not constant, how do I model it?
+
+TODO: I assume you are familiar with STAN or atleast BUGS/JAGS. blah blah. Link to Manual and web page.
+ 
+First lets look at the STAN code:
+```{r stanModelCode, echo=FALSE, results="asis"}
+tf <- tempfile(fileext=".html")
+system(sprintf("/usr/local/bin/pygmentize -o %s ./bowling.stan", tf))
+cat(readLines(tf), sep="\n")
+unlink(tf)
+```
+- Kept things simple with the gamma's rate and shape paramters just constants: 9, 2
+- The gamma in the PMF has nothing to do with the gamma distribution. I just chose gamma distribution for this example. I could have chosen anything
+- Note the transformed parameters bit. The gamma param from the gamma distribution has to be non negative. But the PMF allows values >= -1 so we transform it.
+- Note the use of `target += ` statement. They increment the log probability in exact amounts since we know the normalizing constant in the posterior kernel we take advantage of them.
+- TODO: Reference to Stan manual for code. 
+
+The model code is the most important and shows
+```{r setUp, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+library(rstan)
+library(dplyr)
+library(magrittr)
+library(gridExtra)
+library(ggplot2)
+```
+Lets expose some of the stan code so we can call it from R. We will use it to help us generate some fake data. Yet another cool feature of stan.
+```{r exposeStanFunctions, cache.path="cache/", tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE}
+expose_stan_functions("./bowling.stan") # Compiles the C++ function and caches it
+```
+
+Now time for some fake data.
+```{r generateData, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+
+# Generate some data using sample function
+set.seed(100)
+npins = 10
+omega_x = 0:npins
+g.init = rgamma(1, 9, 2)  # just a value for now to generate the frames. 
+PMF = function(x, g, pins) {
+    if(x > pins) {
+        return(0)
+    }
+    F(x+g)/(F(pins + g + 2) - F(g + 1))
+}
+n = 500 # generate n frames like in a game. Keeping this number high so that we can have more data to play with
+x1 = sample(omega_x, size = n, replace = TRUE,prob = sapply(0:npins, function(x) { PMF(x, g.init, npins)}))
+# i.e. draw a sample of n rolls, each of which is select from a npins
+# Dimension(#pins) vector: p(X=x|g, npins) where x \in [0:npins]. Then for the
+# left over pins simulate the left over rolls.
+x2 = rep(0, n)
+# Sample x2|x1 in the exact same way
+for (i in 1:n) {
+    # For omega_x
+    xi = x1[i]
+    if (npins - xi > 0){
+        x2[i] = sample(0:(npins - xi), size=1, prob=sapply(0:(npins-xi), function(x) {PMF(x, g.init, npins-xi)}))
+    } # any balls left?
+
+}
+data.list = list(x1 = x1, x2 = x2, nframes=length(x1))
+```
+### A few things to note
+I chose a constant for `g.init`. OTOH I could generate many frames with a different g.init's coming from some sort of distribution. More on that later. You can recover this distribution's posterior if you know about it. Many stat models that model real life phenomenon actually generate a distribution over the hyperparams, but that requires a bit more sophisticated(although very instructive) analysis where each roll could have many distributions.
+
+Now learn the model via stan
+```{r stan, cache.path ="cache/", tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE}
+stan.fit = stan('./bowling.stan',
+                data = data.list,
+                iter=5000,
+                cores=4,
+                chains=4,
+                control=list(adapt_delta=0.98))
+```
+stan.fit will contain the posterior samples
+
+Lets see how well we recovered the original parameter g.init from the simulation.
+
+```{r plotPosterior, cache.path ="cache/", tidy=TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE, dependson="stan"}
+sims = as.data.frame(stan.fit)
+# Did we recover the value of gamma?
+p1 = ggplot(sims) + geom_density(aes(x=g)) + 
+    geom_vline(aes(xintercept=mean(g), color="mean")) + 
+    geom_vline(aes(xintercept=median(g), color="median")) + 
+    geom_vline(aes(xintercept=g.init, color="g.init")) 
+print(p1)
+```
+The mean, median and the chosen value of g are pretty close. So we are happy.
+# Generating posterior predictions
+
+Predictions done in parmetric models were easy using posterior samples one just did X\*b_posterior to get the y's
+There is no closed form thing that will give me samples from posterior I am not sure how that could be done. But since the X's domain is discrete, 1:npins, I can just use binomial to generate these values. 
+
+```{r posteriorPredictive, cache.path="cache/", cache=TRUE, dependson="stan"}
+n.post.samples = 100 # Choose a 100 samples from the posterior of gamma
+gamma.posterior = sims$gamma_p1[1:n.post.samples]
+
+x1.posterior = data.frame(matrix(0, nrow=n.post.samples, ncol=n)) # a frame of bowling per posterior sample
+colnames(x1.posterior) = sapply(1:n, function(i) {paste("frame_", i, sep="")})
+x2.posterior = data.frame(matrix(0, nrow=n.post.samples, ncol=n))
+colnames(x2.posterior) = sapply(1:n, function(i) {paste("frame_", i, sep="")})
+
+#PMF.vectorized = Vectorize(PMF, vectorize.args=c("g", "n"))
+
+
+# Generate all the frames *per* value of gamma
+for(i in 1:n.post.samples) {
+    x1.posterior[i, ] = sample(
+                             omega_x, 
+                             size=n,
+                             replace=TRUE, 
+                             prob=sapply(0:npins, 
+                                         function(x) {
+                                             PMF(x, g=gamma.posterior[i], pins=npins)
+                                        }))
+    leftover.pins = c(t(npins - x1.posterior[i, ])) # convert to vector
+    # There is no easy efficient way to sample for x2 because leftover.pins[j] is different for
+    # each frame j. There is combinatorially many such values
+    for(j in 1:n) {
+        x2.posterior[i, j] = sample(
+                                0:leftover.pins[j],
+                                size=1,
+                                prob=sapply(0:leftover.pins[j], 
+                                            function(x) {
+                                                 PMF(x, g=gamma.posterior[i], pins=leftover.pins[j])
+                                            })
+                                )
+    }
+
+}
+```
+Even with the small domain of X, simulation of posterior
+samples is computationally intensive because `sample()` function needs to be evaluated for X2|X1 for each posterior sample. The x1's are more efficient to simulate but once you have more variables in your conditional distribution you just get need to evaluate the density that is polynomial the arity of those variables.
+
+ How do these compare to the initial x's generated
+```{r ppcChecks, echo=FALSE, cache=FALSE, dependson="posteriorPredictive"}
+p1 = bayesplot::ppc_dens_overlay(x1, as.matrix(x1.posterior))
+p2 = bayesplot::ppc_dens_overlay(x2, as.matrix(x2.posterior))
+grid.arrange(p1, p2, nrow=2)
+```
+ 
+ Two things to note is how the model reproduces (light blue line) P(X1|..) pretty well all through . But P(X2|X1..) has poor prediction in regions X2 < 5. What might be the reason? The figure clearly shows that the high variance.

@@ -1,0 +1,92 @@
+---
+title: "Cows and Milk"
+author: "Sidharth Gupta"
+date: \today
+output:
+   html_document:
+    css: css/code.css
+    highlight: default
+    citation_package:
+    keep_tex: false
+    fig_caption: true
+    latex_engine: pdflatex
+runtime: shiny
+fontsize: 11pt
+geometry: margin=1ine
+header-includes:
+- \usepackage{indentfirst}
+- \usepackage{graphicx}
+- \usepackage{geometry}
+- \usepackage{subfigure}
+- \usepackage{amsmath}
+- \usepackage{listings}
+- \usepackage{tikz}
+- \usetikzlibrary{matrix}
+---
+
+```{r setUp, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+library(rstan)
+library(dplyr)
+library(magrittr)
+library(gridExtra)
+library(ggplot2)
+library(bayesplot)
+```
+## Question 7
+Farmer Jöns has a huge number of cows. Earlier this year he ran an experiment where he gave 10 cows a special diet that he had heard could make them produce more milk. He recorded the number of liters of milk from these “diet” cows and from 15 “normal” cows during one month. The diet group is coded as a 1 and the normal group is coded as a 2. This is the data:
+```{r}
+d <- data.frame(
+  milk = c(651, 679, 374, 601, 401, 609, 767, 709, 704, 679, 798, 1139,
+           529, 609, 553, 743, 151, 544, 488, 555, 257, 692, 678, 675, 538),
+  group = c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 
+            2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2))
+```
+Restating the cows_and_milk task *Jöns now wants to know: Was the diet any good, does it results in better milk production?* 
+
+## Answer
+Here the model will be slightly different  $y[case[i]] ~ normal(mu[case[i]], sigma[case[i]])$ for the ith data point.
+Here the effectiveness of special diet over the normal diet can be distinguished by modeling the diet as a normal distribution. Since values of the milk are varying a lot. So One to do is to standardize the data before sending it to stan.
+
+
+```{r stan, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE, results='hide', echo=FALSE}
+    fit.stan.a = stan("./cows_and_milk.stan", data = list(
+                                                             milk=diet_milk,
+                                                             N = length(diet_milk)),
+                                                             iter=5000,
+                                                             chains=4,
+                                                             cores=4
+    )
+    fit.stan.b = stan("./cows_and_milk.stan", data = list(
+                                                             milk=normal_milk,
+                                                             N = length(normal_milk)),
+                                                             iter=5000,
+                                                             chains=4,
+                                                             cores=4
+    )
+```
+
+```{r ppc, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE }
+sims.a = data.frame(as.matrix(fit.stan.a))
+sims.b = data.frame(as.matrix(fit.stan.b))
+summary.df = rbind(sims.a %>% do(data.frame(y='diet', min = quantile(.$mu, 0.05), max = quantile(.$mu, 0.95), x = mean(.$mu))), 
+              (sims.b %>% do(data.frame(y='normal', min = quantile(.$mu, 0.05), max = quantile(.$mu, 0.95), x = mean(.$mu)))))
+sims.diff = data.frame(x=sims.a$mu - sims.b$mu)
+ggplot(summary.df) + geom_errorbarh(aes(x=x, xmin=min, xmax=max, y=y, color=y)) + geom_point(aes(x=x, y=y, color=y))
+ggplot() + geom_density(data=sims.a, aes(x = mu, color='diet')) + geom_density(data=sims.b, aes(x = mu, color="normal")) 
+
+```
+Looking at the posterior distribution of the differences in the mean: 
+
+```{r}
+
+data.frame(x=sims.a$mu - sims.b$mu) %>%
+ggplot() + geom_density(aes(x = x)) +
+    geom_vline(mapping=aes(xintercept=mean(x), color='mean'), alpha = 0.5) +
+    geom_vline(mapping=aes(xintercept=median(x), color='median'), alpha =0.5)
+data.frame(x=sims.a$mu - sims.b$mu) %>% summarize(mean(x), median(x))
+```
+
+```{r  tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE }
+mean(sims.a$mu > sims.b$mu)
+```
+The difference is tending positive but not by much. It seems not very likely that the new diet will produce much better milk

@@ -1,0 +1,74 @@
+---
+title: "Cows and Disease"
+author: "Sidharth Gupta"
+date: \today
+output:
+   html_document:
+    css: css/code.css
+    highlight: default
+    citation_package:
+    keep_tex: false
+    fig_caption: true
+    latex_engine: pdflatex
+runtime: shiny
+fontsize: 11pt
+geometry: margin=1ine
+header-includes:
+- \usepackage{indentfirst}
+- \usepackage{graphicx}
+- \usepackage{geometry}
+- \usepackage{subfigure}
+- \usepackage{amsmath}
+- \usepackage{listings}
+- \usepackage{tikz}
+- \usetikzlibrary{matrix}
+---
+
+```{r setUp, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+library(rstan)
+library(dplyr)
+library(magrittr)
+library(gridExtra)
+library(ggplot2)
+library(bayesplot)
+```
+
+Farmer Jöns has a huge number of cows. Earlier this year he ran an experiment where he gave 10 cows medicine A and 10 medicine B and then measured whether they got sick (0) or not (1) during the summer season. Here is the resulting data:
+```{r}
+cowA <- c(0, 1, 0, 0, 0, 0, 1, 0, 0, 0)
+cowB <- c(0, 0, 1, 1, 1, 0, 1, 1, 1, 0)
+```
+*Jöns now wants to know: How effective are the drugs? What is the evidence that medicine A is better or worse than medicine B?* 
+
+The drug's effectiveness. The evidence that medicine A is better than B lies in the posterior distribution of the bernoulli parameter of A. if $p_a$ is the probability of drug and $X_a$ is the r.v. taking on valie 0, 1  $X_a ~ Bernoulli(p_a)$ and $X_b ~ Bernoulli(p_b)$. Here is a simple stan model to generate the probabilities:
+
+```{r stan, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE, results=FALSE}
+    fit.stan.a = stan("./cows_and_disease.stan", data = list(
+                                                             cow=cowA,
+                                                             iter=5000,
+                                                             chains=4,
+                                                             cores=4,
+                                                             N = length(cowA)))
+    fit.stan.b = stan("./cows_and_disease.stan", data = list(
+                                                             cow=cowB,
+                                                             iter=5000,
+                                                             chains=4,
+                                                             cores=4,
+                                                             N = length(cowB)))
+```
+
+```{r ppc, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE }
+sims.a = data.frame(as.matrix(fit.stan.a))
+sims.b = data.frame(as.matrix(fit.stan.b))
+p1 = ggplot(sims.a) + geom_density(aes(x=p))
+p2 = ggplot(sims.b) + geom_density(aes(x=p))
+grid.arrange(p1, p2, nrow=2)
+```
+
+So this tells me that medicine B seems better than A. but what is that number based on the curves. Probably where P(p_a|X) > P(p_b|X) i.e. where the posterior distribution of A tops B . 
+
+```{r}
+mean(sims.a$p > sims.b$p)
+```
+
+So medicine B looks better.

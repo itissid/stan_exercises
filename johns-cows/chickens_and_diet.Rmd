@@ -1,0 +1,74 @@
+---
+title: "Chickens and Diet"
+author: "Sidharth Gupta"
+date: \today
+output:
+   html_document:
+    css: css/code.css
+    highlight: default
+    citation_package:
+    keep_tex: false
+    fig_caption: true
+    latex_engine: pdflatex
+runtime: shiny
+fontsize: 11pt
+geometry: margin=1ine
+header-includes:
+- \usepackage{indentfirst}
+- \usepackage{graphicx}
+- \usepackage{geometry}
+- \usepackage{subfigure}
+- \usepackage{amsmath}
+- \usepackage{listings}
+- \usepackage{tikz}
+- \usetikzlibrary{matrix}
+---
+
+```{r setUp, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+library(rstan)
+library(dplyr)
+library(magrittr)
+library(gridExtra)
+library(ggplot2)
+library(bayesplot)
+```
+## Question
+Farmer Jöns has a huge number of cows. He also has chickens. He tries different diets on them too with the hope that they will produce more eggs. Below is the number of eggs produced in one week by chickens on a diet and chickens eating normal chicken stuff:
+```{r}
+diet_eggs <- c(6, 4, 2, 3, 4, 3, 0, 4, 0, 6, 3)
+normal_eggs <- c(4, 2, 1, 1, 2, 1, 2, 1, 3, 2, 1)
+```
+
+Jöns now wants to know: Was the diet any good, does it result in the chickens producing more eggs?
+
+## Answer
+Using poisson distribution to model the true # eggs per week:
+```{r stan, tidy=TRUE,message=FALSE, warning=FALSE,  error=FALSE, cache=TRUE, result='hide', echo=TRUE}
+    fit.stan.diet = stan("./chickens_and_diet.stan", 
+                     data=list(N = length(diet_eggs), eggs=diet_eggs),
+                     iter=5000,
+                     chains=5,
+                     cores=4
+                     )
+    fit.stan.normal= stan("./chickens_and_diet.stan", 
+                     data=list(N = length(normal_eggs), eggs=normal_eggs),
+                     iter=5000,
+                     chains=5,
+                     cores=4
+                     )
+```
+
+```{r ppc, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE }
+sims.diet = data.frame(as.matrix(fit.stan.diet))
+sims.normal = data.frame(as.matrix(fit.stan.normal))
+mean(sims.diet$lambda > sims.normal$lambda)
+
+ggplot() + 
+    geom_density(data=sims.diet, aes(x = lambda, color='diet')) + 
+    geom_density(data=sims.normal, aes(x = lambda, color="normal")) +
+    geom_density(data=data.frame(x=sims.diet$lambda - sims.normal$lambda),
+                 aes(x=x, color='diff'), linetype=2)
+
+```
+
+Seems there is enough evidence that the diet is producing some differences
