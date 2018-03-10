@@ -62,10 +62,18 @@ Here the effectiveness of special diet over the normal diet can be distinguished
 ```{r ppc, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE }
 sims.a = data.frame(as.matrix(fit.stan.a))
 sims.b = data.frame(as.matrix(fit.stan.b))
-summary.df = rbind(sims.a %>% do(data.frame(y='diet', min = quantile(.$mu, 0.05), max = quantile(.$mu, 0.95), x = mean(.$mu))), 
-              (sims.b %>% do(data.frame(y='normal', min = quantile(.$mu, 0.05), max = quantile(.$mu, 0.95), x = mean(.$mu)))))
-sims.diff = data.frame(x=sims.a$mu - sims.b$mu)
-ggplot(summary.df) + geom_errorbarh(aes(x=x, xmin=min, xmax=max, y=y, color=y)) + geom_point(aes(x=x, y=y, color=y))
+sims = cbind(
+    sims.a  %>% dplyr::select(mu, sigma) %>% rename(mu.1 = mu, sigma.1=sigma), 
+    sims.b %>% dplyr::select(mu, sigma) %>% rename(mu.2 = mu, sigma.2=sigma))
+
+sims %>% 
+    mutate(mu.diff=mu.1 - mu.2) %>% melt %>%
+    ggplot(., aes(x=variable, y=value, color=variable)) +
+           stat_summary(fun.y = mean, 
+                        fun.ymax = function(x) {quantile(x, 0.95)},
+                        fun.ymin = function(x) {quantile(x, 0.05)},
+                        geom="pointrange")
+
 ggplot() + geom_density(data=sims.a, aes(x = mu, color='diet')) + geom_density(data=sims.b, aes(x = mu, color="normal")) 
 
 ```
@@ -77,7 +85,7 @@ data.frame(x=sims.a$mu - sims.b$mu) %>%
 ggplot() + geom_density(aes(x = x)) +
     geom_vline(mapping=aes(xintercept=mean(x), color='mean'), alpha = 0.5) +
     geom_vline(mapping=aes(xintercept=median(x), color='median'), alpha =0.5)
-data.frame(x=sims.a$mu - sims.b$mu) %>% summarize(mean(x), median(x))
+data.frame(x=sims.a$mu - sims.b$mu) %>% dplyr::summarize(mean=mean(x), median=median(x))
 ```
 
 ```{r  tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE }
