@@ -21,6 +21,7 @@ model {
 }
 
 generated quantities {
+   // See page 362 of stan manual for this piece of code
    real mu;
    real<lower=0> sigma;
    mu = mean(milk) + mu_std*sd(milk);

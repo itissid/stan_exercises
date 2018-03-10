@@ -44,49 +44,33 @@ d <- data.frame(
 Restating the cows_and_milk task *Jöns now wants to know: Was the diet any good, does it results in better milk production?* 
 
 ## Answer
-Here the model will be slightly different  $y[case[i]] ~ normal(mu[case[i]], sigma[case[i]])$ for the ith data point.
+Here the model will be slightly different  $y[i] ~ normal(mu[group[i]], sigma[group[i]])$ for the ith data point.
 Here the effectiveness of special diet over the normal diet can be distinguished by modeling the diet as a normal distribution. Since values of the milk are varying a lot. So One to do is to standardize the data before sending it to stan.
 
 
 ```{r stan, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE, results='hide', echo=FALSE}
-    fit.stan.a = stan("./cows_and_milk.stan", data = list(
-                                                             milk=diet_milk,
-                                                             N = length(diet_milk)),
-                                                             iter=5000,
-                                                             chains=4,
-                                                             cores=4
-    )
-    fit.stan.b = stan("./cows_and_milk.stan", data = list(
-                                                             milk=normal_milk,
-                                                             N = length(normal_milk)),
-                                                             iter=5000,
-                                                             chains=4,
-                                                             cores=4
+    fit.stan = stan("./cows_and_milk_redux.stan", data = list(
+                                             milk=d$milk,
+                                             group_id= d$group,
+                                             G = length(unique(d$group)),
+                                             N = nrow(d)),
+                                             iter=5000,
+                                             chains=4,
+                                             cores=4
     )
 ```
 
+I tries a slightly lesss verbose and plotting code to do things here. This is nicer becasue it follows the Tidy Data concepts.
 ```{r ppc, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE }
-sims.a = data.frame(as.matrix(fit.stan.a))
-sims.b = data.frame(as.matrix(fit.stan.b))
-summary.df = rbind(sims.a %>% do(data.frame(y='diet', min = quantile(.$mu, 0.05), max = quantile(.$mu, 0.95), x = mean(.$mu))), 
-              (sims.b %>% do(data.frame(y='normal', min = quantile(.$mu, 0.05), max = quantile(.$mu, 0.95), x = mean(.$mu)))))
-sims.diff = data.frame(x=sims.a$mu - sims.b$mu)
-ggplot(summary.df) + geom_errorbarh(aes(x=x, xmin=min, xmax=max, y=y, color=y)) + geom_point(aes(x=x, y=y, color=y))
-ggplot() + geom_density(data=sims.a, aes(x = mu, color='diet')) + geom_density(data=sims.b, aes(x = mu, color="normal")) 
+sims = data.frame(as.matrix(fit.stan))
+# 
+sims %>% select(mu.1., mu.2., sigma.1., sigma.2.) %>% mutate(mu.diff=mu.1. - mu.2.) %>% melt %>% 
+    ggplot(., aes(x=variable, y=value, color=variable)) +
+           stat_summary(fun.y = mean, 
+                        fun.ymax = function(x) {quantile(x, 0.95)},
+                        fun.ymin = function(x) {quantile(x, 0.05)},
+                        geom="pointrange")
 
 ```
-Looking at the posterior distribution of the differences in the mean: 
+The results are as in Q4.
 
-```{r}
-
-data.frame(x=sims.a$mu - sims.b$mu) %>%
-ggplot() + geom_density(aes(x = x)) +
-    geom_vline(mapping=aes(xintercept=mean(x), color='mean'), alpha = 0.5) +
-    geom_vline(mapping=aes(xintercept=median(x), color='median'), alpha =0.5)
-data.frame(x=sims.a$mu - sims.b$mu) %>% summarize(mean(x), median(x))
-```
-
-```{r  tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE }
-mean(sims.a$mu > sims.b$mu)
-```
-The difference is tending positive but not by much. It seems not very likely that the new diet will produce much better milk

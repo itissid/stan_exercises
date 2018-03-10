@@ -6,8 +6,25 @@ data {
 }
 
 transformed data {
+    real milk_mean[G] = rep_array(0.0, G);  
+    real milk_var[G] = rep_array(0.0, G);  
+    int group_pop[G] = rep_array(0, G); 
     vector[N] centered_milk;
-    centered_milk = (milk - mean(milk))/sd(milk);
+    for(n in 1:N) {
+        group_pop[group_id[n]] += 1;
+    }
+
+    for(n in 1:N) {
+        milk_mean[group_id[n]] += milk[n];
+    }
+
+    for(n in 1:N) {
+        milk_var[group_id[n]] += (milk[n] - milk_mean[group_id[n]]/group_pop[group_id[n]])^2;
+    }
+
+    for(n in 1:N) {
+        centered_milk[n] = (milk[n] - milk_mean[group_id[n]])/sqrt(milk_var[group_id[n]]);
+    }
 }
 
 parameters {
@@ -17,25 +34,28 @@ parameters {
 
 
 model {
-    mu ~ normal(0, 1)
-    sigma_std ~ student_t(1, 0, 1)
+    mu_std ~ normal(0, 1);
+    sigma_std ~ student_t(1, 0, 1);
     /**
     * Slower but equivalent part.
     * for(i in 1:G) {
     *     sigma_std[i] ~ student_t(1, 0, 1)
     * }
     **/
-
     for(i in 1:N) {
-       centered_milk[i] ~ normal(mu_std[gid[i]], sigma[gid[i]]);
+       centered_milk[i] ~ normal(mu_std[group_id[i]], sigma_std[group_id[i]]);
     }
         
 }
 
 generated quantities {
-   real mu[G];
-   real<lower=0> sigma[G};
-   mu = mean(milk) + mu_std*sd(milk);
-   sigma = sd(milk)*sigma_std;
+    real mu[G];
+    real<lower=0> sigma[G];
+    // For each group reverse the transform the standardized parameters into
+    // ones that conform to the scale of the data.
+    for(g in 1:G) {
+       mu[g] = milk_mean[g] + mu_std[g]*sqrt(milk_var[g]);
+       sigma[g] = sqrt(milk_var[g])*sigma_std[g];
+    }
   
 }
