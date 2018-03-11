@@ -1,5 +1,5 @@
 ---
-title: "Cows and Milk"
+title: "Cows and Milk Redux"
 author: "Sidharth Gupta"
 date: \today
 output:
@@ -48,7 +48,7 @@ Here the model will be slightly different  $y[i] ~ normal(mu[group[i]], sigma[gr
 Here the effectiveness of special diet over the normal diet can be distinguished by modeling the diet as a normal distribution. Since values of the milk are varying a lot. So One to do is to standardize the data before sending it to stan.
 
 
-```{r stan, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=FALSE, results='hide', echo=FALSE}
+```{r stan, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE, results='hide', echo=FALSE}
     fit.stan = stan("./cows_and_milk_redux.stan", data = list(
                                              milk=d$milk,
                                              group_id= d$group,
@@ -93,7 +93,7 @@ d1 <- data.frame(
             2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3))
 ```
 
-```{r stan2, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=FALSE, results='hide', echo=FALSE}
+```{r stan2, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE, results='hide', echo=FALSE}
     fit.stan.2 = stan("./cows_and_milk_redux.stan", data = list(
                                              milk=d1$milk,
                                              group_id= d1$group,
@@ -121,3 +121,4 @@ sims.2 %>%
 			fun.ymin = function(x) {quantile(x, 0.05)},
 			geom="pointrange")
 ```
+We see that the third diet is working out much better than the first and second diet.

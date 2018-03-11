@@ -24,10 +24,7 @@ transformed data {
 
     for(n in 1:N) {
         centered_milk[n] = (milk[n] - milk_mean[group_id[n]])/sqrt(milk_var[group_id[n]]);
-	print(centered_milk[n]);
     }
-    print(milk_mean);
-    print(milk_var);
 }
 
 parameters {
