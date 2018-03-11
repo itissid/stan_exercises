@@ -1,0 +1,83 @@
+---
+title: "Cows and Sunshine"
+author: "Sidharth Gupta"
+date: \today
+output:
+   html_document:
+    css: css/code.css
+    highlight: default
+    citation_package:
+    keep_tex: false
+    fig_caption: true
+    latex_engine: pdflatex
+runtime: shiny
+fontsize: 11pt
+geometry: margin=1ine
+header-includes:
+- \usepackage{indentfirst}
+- \usepackage{graphicx}
+- \usepackage{geometry}
+- \usepackage{subfigure}
+- \usepackage{amsmath}
+- \usepackage{listings}
+- \usepackage{tikz}
+- \usetikzlibrary{matrix}
+---
+
+```{r setUp, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+library(rstan)
+library(dplyr)
+library(magrittr)
+library(gridExtra)
+library(ggplot2)
+library(bayesplot)
+```
+## Question 9
+Farmer Jöns has a huge number of cows. He is wondering whether the amount of time a cow spends outside in the sunshine affects how much milk she produces. To test this he makes a controlled experiment where he picks out 20 cows and assigns each a number of hours she should spend outside each day. The experiment runs for a month and Jöns records the number of liters of milk each cow produces. Copy-n-paste the following into R and inspect the resulting data frame d.
+```{r}
+d <- data.frame(milk = c(685, 691, 476, 1151, 879, 725, 1190, 1107, 809, 539,
+                         298, 805, 820, 498, 1026, 1217, 1177, 684, 1061, 834),
+                hours = c(3, 7, 6, 10, 6, 5, 10, 11, 9, 3, 6, 6, 3, 5, 8, 11, 
+                          12, 9, 5, 5))
+```
+Using this data on hours of sunshine and resulting liters of milk Jöns wants to know: Does sunshine affect milk production positively or negatively?
+
+Lets look at the plot of the graphs
+```{r}
+ggplot(d, aes(x=hours, y = milk)) + geom_point() + 
+    geom_smooth(method='lm') +
+    geom_smooth(method='loess')
+```
+Assuming that farmer jon has controlled for all other factors experimentally like diet, without sun production etc there seems some positive association between hours in the sun and milk production.
+We should center the X's, this will help us interpret the coefficients in terms of milk change per sunshine hour. It will also help us interpret the intercept as the expected value of Y in the linear model.
+```{r stan, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=FALSE, results='hide', echo=FALSE}
+set.seed(100)
+     fit.stan = stan("./cows_and_sun.stan", data=list(y= d$milk, N = nrow(d), x=d$hours), iter=5000, chains=4, cores=4)
+
+```
+
+
+```{r ppc, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE }
+sims = data.frame(as.matrix(fit.stan))
+coefs = sims %>% dplyr::select(a,b) %>% as.matrix()
+
+
+p1 = ggplot(sims %>% select(a, b) %>% melt, aes(x=value, color=variable)) + geom_density()
+p2 = ggplot(sims %>% select(a, b, sigma) %>% melt, aes(x=variable, y=value, color=variable)) + 
+    stat_summary(fun.y=mean, 
+                 fun.ymax = function(x) {quantile(x, 0.95)},
+                 fun.ymin = function(x) {quantile(x, 0.05)},
+                 geom="pointrange")
+grid.arrange(p1, p2, ncol=2)
+X = matrix(c(rep(1, nrow(d)), d$hours), nrow = nrow(d))
+posterior_predictions = X %*% t(coefs)
+# Density overlay plots of the posterior predictive are quite noisy. Since there are only 20 points
+set.seed(100)
+#ppc_dens_overlay(
+#    d$milk, 
+#    t(posterior_predictions) %>% as.data.frame %>% dplyr::sample_n(500) %>% as.matrix) + xlim(-30,30)
+posterior_medians = t(posterior_predictions) %>% as.data.frame %>% dplyr::summarize_all(median)
+# 
+```
+Looking at the posterior distribution of the differences in the mean: 
+
