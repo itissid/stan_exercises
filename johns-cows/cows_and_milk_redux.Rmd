@@ -48,7 +48,7 @@ Here the model will be slightly different  $y[i] ~ normal(mu[group[i]], sigma[gr
 Here the effectiveness of special diet over the normal diet can be distinguished by modeling the diet as a normal distribution. Since values of the milk are varying a lot. So One to do is to standardize the data before sending it to stan.
 
 
-```{r stan, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE, results='hide', echo=FALSE}
+```{r stan, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=FALSE, results='hide', echo=FALSE}
     fit.stan = stan("./cows_and_milk_redux.stan", data = list(
                                              milk=d$milk,
                                              group_id= d$group,
@@ -62,15 +62,62 @@ Here the effectiveness of special diet over the normal diet can be distinguished
 
 I tries a slightly lesss verbose and plotting code to do things here. This is nicer becasue it follows the Tidy Data concepts.
 ```{r ppc, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE }
+plotSims <- function(sims, selected_vars=c("mu.1.", "mu.2.")) {
+    p1 = ggplot(data=sims %>% dplyr::select_at(vars(selected_vars)) %>% melt) + 
+	geom_density(aes(x = value, color=variable))
+    print(p1)
+
+}
 sims = data.frame(as.matrix(fit.stan))
-# 
-sims %>% select(mu.1., mu.2., sigma.1., sigma.2.) %>% mutate(mu.diff=mu.1. - mu.2.) %>% melt %>% 
+sims %>% 
+    select(mu.1., mu.2., sigma.1., sigma.2.) %>% 
+    mutate(mu.diff=mu.1. - mu.2.) %>% 
+    melt %>% 
     ggplot(., aes(x=variable, y=value, color=variable)) +
-           stat_summary(fun.y = mean, 
-                        fun.ymax = function(x) {quantile(x, 0.95)},
-                        fun.ymin = function(x) {quantile(x, 0.05)},
-                        geom="pointrange")
+	   stat_summary(fun.y = mean, 
+			fun.ymax = function(x) {quantile(x, 0.95)},
+			fun.ymin = function(x) {quantile(x, 0.05)},
+			geom="pointrange")
+plotSims(sims)
 
 ```
 The results are as in Q4.
 
+## Question 8
+```{r}
+d1 <- data.frame(
+  milk = c(651, 679, 374, 601, 401, 609, 767, 709, 704, 679, 798, 1139, 529,
+           609, 553, 743, 151, 544, 488, 555, 257, 692, 678, 675, 538, 1061,
+           721, 595, 784, 877, 562, 800, 684, 741, 516),
+  group = c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+            2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3))
+```
+
+```{r stan2, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=FALSE, results='hide', echo=FALSE}
+    fit.stan.2 = stan("./cows_and_milk_redux.stan", data = list(
+                                             milk=d1$milk,
+                                             group_id= d1$group,
+                                             G = length(unique(d1$group)),
+                                             N = nrow(d1)),
+                                             iter=5000,
+                                             chains=4,
+                                             cores=4,
+					     control=list(adapt_delta=0.95)
+    )
+```
+
+```{r ppc2, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE }
+sims.2 = data.frame(as.matrix(fit.stan.2))
+plotSims(sims.2, selected_vars=c("mu.1.", "mu.2.", "mu.3."))
+sims.2 %>%
+    select(mu.1., mu.2., mu.3., sigma.1., sigma.2., sigma.3.) %>% 
+    mutate(mu.diff.12=mu.1. - mu.2.) %>% 
+    mutate(mu.diff.13=mu.1. - mu.3.) %>% 
+    mutate(mu.diff.23=mu.2. - mu.3.) %>% 
+    melt %>% 
+    ggplot(., aes(x=variable, y=value, color=variable)) +
+	   stat_summary(fun.y = mean, 
+			fun.ymax = function(x) {quantile(x, 0.95)},
+			fun.ymin = function(x) {quantile(x, 0.05)},
+			geom="pointrange")
+```
