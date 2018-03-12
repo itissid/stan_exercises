@@ -50,14 +50,50 @@ ggplot(d, aes(x=hours, y = milk)) + geom_point() +
     geom_smooth(method='loess')
 ```
 Assuming that farmer jon has controlled for all other factors experimentally like diet, without sun production etc there seems some positive association between hours in the sun and milk production.
-We should center the X's, this will help us interpret the coefficients in terms of milk change per sunshine hour. It will also help us interpret the intercept as the expected value of Y in the linear model.
-```{r stan, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=FALSE, results='hide', echo=FALSE}
+We should center the X's, this will help us interpret the coefficients in terms of milk change per sunshine hour. It will also help us interpret the intercept as the expected value of Y in the linear model. If we center Y as well then then intercept term will be zero.
+```{r stan, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE, results='hide', echo=FALSE}
 set.seed(100)
 fit.stan = stan(
                 "./cows_and_sun.stan", 
                 data=list(y= d$milk, N = nrow(d), x=d$hours), 
                 iter=5000, chains=4, cores=4, control=list(adapt_delta=0.99))
 
+```
+
+1. I tried centering just the X's and that seemed to produce divergent transactions. I had very tight priors on the slope and the beta was almost zero:
+```{r eval=FALSE}
+
+    target += uniform_lpdf(sigma|0,1000); // modelling a unknown variance, t should be ok.
+    target += uniform_lpdf(a|-1000, 1000); // a ~ normal(0,1)
+    target += normal_lpdf(b|0, 1); // b ~ normal(0,1)
+
+         mean se_mean    sd    2.5%     25%     50%     75%   97.5% n_eff
+a      832.47    0.81 63.37  701.61  791.86  834.03  874.82  955.09  6152
+b        0.05    0.01  1.00   -1.93   -0.63    0.05    0.72    2.03  7445
+sigma  285.78    0.68 51.44  206.54  249.59  278.74  314.35  405.21  5678
+lp__  -150.97    0.02  1.23 -154.16 -151.56 -150.67 -150.06 -149.54  3493
+```
+
+2. Of course it was ~ 0 the unit change in X will still cause large changes in Y, so the prior needs to be much loser. I can only set those kind of limited priors on X if the range of Y is also controlled:
+
+```{r eval=FALSE}
+    target += uniform_lpdf(sigma|0,1000); // modelling a unknown variance, t should be ok.
+    target += uniform_lpdf(a|-1000, 1000); // a ~ normal(0,1)
+    target += normal_lpdf(b|0, 100); // b ~ normal(0,1) -> Remember that the units of this need to be based on Y. Again best is to standardize both
+         mean se_mean    sd    2.5%     25%     50%     75%   97.5% n_eff
+a      833.81    0.61 49.64  735.92  801.06  833.42  866.73  932.94  6627
+b      137.17    0.58 46.44   41.03  107.84  138.86  168.32  225.47  6421
+sigma  224.76    0.57 41.30  160.50  195.20  219.49  247.95  320.67  5321
+lp__  -151.57    0.02  1.25 -154.79 -152.16 -151.25 -150.65 -150.14  3360
+```
+
+3. Once we standardize both the variables the lines sort of agree with the linear model from earlier. Though the uncertainity is pretty large.
+```{r eval=FALSE}
+        mean se_mean   sd   2.5%    25%    50%    75%  97.5% n_eff Rhat
+a       0.00    0.00 0.18  -0.36  -0.12   0.00   0.12   0.35  6807    1
+b       0.63    0.00 0.19   0.25   0.51   0.63   0.75   0.99  6855    1
+sigma   0.82    0.00 0.14   0.59   0.72   0.80   0.90   1.14  5639    1
+lp__  -27.47    0.02 1.29 -30.77 -28.06 -27.15 -26.52 -25.98  3255    1
 ```
 
 
@@ -67,10 +103,7 @@ coefs = sims %>% dplyr::select(a,b) %>% as.matrix()
 
 set.seed(1000)
 p1 = ggplot(data=d, aes(x=(hours-mean(hours))/sd(hours), y=(milk-mean(milk))/sd(milk))) + geom_point(color='red')
-#p1 = ggplot(data=d, aes(x=(hours-mean(hours))/sd(hours), y=milk)) + geom_point(color='red')
-#p1 = ggplot(data=d, aes(x=hours, y=milk)) + geom_point(color='red')
-p1 =  p1+ geom_abline(data=sims %>% dplyr::sample_n(1000), aes(slope=b, intercept=a), alpha=0.1) 
-
+p1 =  p1+ geom_abline(data=sims %>% dplyr::sample_n(100), aes(slope=b, intercept=a), alpha=0.1) 
 print(p1)
 
 p1 = ggplot(sims %>% select(a, b) %>% melt, aes(x=value, color=variable)) + geom_density()
@@ -80,14 +113,5 @@ p2 = ggplot(sims %>% select(a, b, sigma) %>% melt, aes(x=variable, y=value, colo
                  fun.ymin = function(x) {quantile(x, 0.05)},
                  geom="pointrange")
 grid.arrange(p1, p2, ncol=2)
-X = matrix(c(rep(1, nrow(d)), d$hours), nrow = nrow(d))
-posterior_predictions = X %*% t(coefs)
-# Density overlay plots of the posterior predictive are quite noisy. Since there are only 20 points
-set.seed(100)
-#ppc_dens_overlay(
-#    d$milk, 
-#    t(posterior_predictions) %>% as.data.frame %>% dplyr::sample_n(500) %>% as.matrix) + xlim(-30,30)
-posterior_medians = t(posterior_predictions) %>% as.data.frame %>% dplyr::summarize_all(median)
-# 
 ```
 
