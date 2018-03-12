@@ -31,6 +31,7 @@ library(magrittr)
 library(gridExtra)
 library(ggplot2)
 library(bayesplot)
+library(reshape2)
 ```
 ## Question 9
 Farmer Jöns has a huge number of cows. He is wondering whether the amount of time a cow spends outside in the sunshine affects how much milk she produces. To test this he makes a controlled experiment where he picks out 20 cows and assigns each a number of hours she should spend outside each day. The experiment runs for a month and Jöns records the number of liters of milk each cow produces. Copy-n-paste the following into R and inspect the resulting data frame d.
@@ -52,7 +53,10 @@ Assuming that farmer jon has controlled for all other factors experimentally lik
 We should center the X's, this will help us interpret the coefficients in terms of milk change per sunshine hour. It will also help us interpret the intercept as the expected value of Y in the linear model.
 ```{r stan, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=FALSE, results='hide', echo=FALSE}
 set.seed(100)
-     fit.stan = stan("./cows_and_sun.stan", data=list(y= d$milk, N = nrow(d), x=d$hours), iter=5000, chains=4, cores=4)
+fit.stan = stan(
+                "./cows_and_sun.stan", 
+                data=list(y= d$milk, N = nrow(d), x=d$hours), 
+                iter=5000, chains=4, cores=4, control=list(adapt_delta=0.99))
 
 ```
 
@@ -61,6 +65,13 @@ set.seed(100)
 sims = data.frame(as.matrix(fit.stan))
 coefs = sims %>% dplyr::select(a,b) %>% as.matrix()
 
+set.seed(1000)
+p1 = ggplot(data=d, aes(x=(hours-mean(hours))/sd(hours), y=(milk-mean(milk))/sd(milk))) + geom_point(color='red')
+#p1 = ggplot(data=d, aes(x=(hours-mean(hours))/sd(hours), y=milk)) + geom_point(color='red')
+#p1 = ggplot(data=d, aes(x=hours, y=milk)) + geom_point(color='red')
+p1 =  p1+ geom_abline(data=sims %>% dplyr::sample_n(1000), aes(slope=b, intercept=a), alpha=0.1) 
+
+print(p1)
 
 p1 = ggplot(sims %>% select(a, b) %>% melt, aes(x=value, color=variable)) + geom_density()
 p2 = ggplot(sims %>% select(a, b, sigma) %>% melt, aes(x=variable, y=value, color=variable)) + 
@@ -79,5 +90,4 @@ set.seed(100)
 posterior_medians = t(posterior_predictions) %>% as.data.frame %>% dplyr::summarize_all(median)
 # 
 ```
-Looking at the posterior distribution of the differences in the mean: 
 
