@@ -1,5 +1,5 @@
 ---
-title: "Cows and Sunshine"
+title: Cows and Sunshine
 author: "Sidharth Gupta"
 date: \today
 output:
@@ -43,12 +43,15 @@ d <- data.frame(milk = c(685, 691, 476, 1151, 879, 725, 1190, 1107, 809, 539,
 ```
 Using this data on hours of sunshine and resulting liters of milk Jöns wants to know: Does sunshine affect milk production positively or negatively?
 
-Lets look at the plot of the graphs
+Lets look at the plot of the raw data. 
 ```{r}
 ggplot(d, aes(x=hours, y = milk)) + geom_point() + 
     geom_smooth(method='lm') +
-    geom_smooth(method='loess')
+    geom_smooth(method='loess', color='red')
 ```
+
+Remember that the localized regression smoother shows that the relationship is not very linear. 
+
 Assuming that farmer jon has controlled for all other factors experimentally like diet, without sun production etc there seems some positive association between hours in the sun and milk production.
 We should center the X's, this will help us interpret the coefficients in terms of milk change per sunshine hour. It will also help us interpret the intercept as the expected value of Y in the linear model. If we center Y as well then then intercept term will be zero.
 ```{r stan, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE, results='hide', echo=FALSE}
@@ -60,12 +63,14 @@ fit.stan = stan(
 
 ```
 
-1. I tried centering just the X's and that seemed to produce divergent transactions. I had very tight priors on the slope and the beta was almost zero:
+1. I tried centering just the X's and that seemed to produce divergent
+   transactions. I had very tight priors on the slope and the beta was almost
+   zero:
 ```{r eval=FALSE}
 
-    target += uniform_lpdf(sigma|0,1000); // modelling a unknown variance, t should be ok.
-    target += uniform_lpdf(a|-1000, 1000); // a ~ normal(0,1)
-    target += normal_lpdf(b|0, 1); // b ~ normal(0,1)
+target += uniform_lpdf(sigma|0,1000);
+target += uniform_lpdf(a|-1000, 1000);
+target += normal_lpdf(b|0, 1);
 
          mean se_mean    sd    2.5%     25%     50%     75%   97.5% n_eff
 a      832.47    0.81 63.37  701.61  791.86  834.03  874.82  955.09  6152
@@ -74,12 +79,15 @@ sigma  285.78    0.68 51.44  206.54  249.59  278.74  314.35  405.21  5678
 lp__  -150.97    0.02  1.23 -154.16 -151.56 -150.67 -150.06 -149.54  3493
 ```
 
-2. Of course it was ~ 0 the unit change in X will still cause large changes in Y, so the prior needs to be much loser. I can only set those kind of limited priors on X if the range of Y is also controlled:
+2. Of course the slope was ~ 0. The unit change in X will still cause large
+   changes in Y because the Y's are not centered, so the prior needs to be much
+   looser. I need to center Y as well:
 
 ```{r eval=FALSE}
-    target += uniform_lpdf(sigma|0,1000); // modelling a unknown variance, t should be ok.
-    target += uniform_lpdf(a|-1000, 1000); // a ~ normal(0,1)
-    target += normal_lpdf(b|0, 100); // b ~ normal(0,1) -> Remember that the units of this need to be based on Y. Again best is to standardize both
+target += uniform_lpdf(sigma|0,1000); 
+target += uniform_lpdf(a|-1000, 1000);
+target += normal_lpdf(b|0, 100);
+
          mean se_mean    sd    2.5%     25%     50%     75%   97.5% n_eff
 a      833.81    0.61 49.64  735.92  801.06  833.42  866.73  932.94  6627
 b      137.17    0.58 46.44   41.03  107.84  138.86  168.32  225.47  6421
@@ -87,7 +95,10 @@ sigma  224.76    0.57 41.30  160.50  195.20  219.49  247.95  320.67  5321
 lp__  -151.57    0.02  1.25 -154.79 -152.16 -151.25 -150.65 -150.14  3360
 ```
 
-3. Once we standardize both the variables the lines sort of agree with the linear model from earlier. Though the uncertainity is pretty large.
+3. Once we standardize both the variables the regression line is in agreement
+   with the linear model from earlier. And we can see that the uncertainity is
+   still pretty large.
+
 ```{r eval=FALSE}
         mean se_mean   sd   2.5%    25%    50%    75%  97.5% n_eff Rhat
 a       0.00    0.00 0.18  -0.36  -0.12   0.00   0.12   0.35  6807    1
@@ -115,3 +126,4 @@ p2 = ggplot(sims %>% select(a, b, sigma) %>% melt, aes(x=variable, y=value, colo
 grid.arrange(p1, p2, ncol=2)
 ```
 
+There are more ideas we can try with the Stan program to improve its efficiency by using for example cholesky decomposition, but that is in more useful in hierarchical models.

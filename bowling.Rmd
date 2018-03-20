@@ -24,12 +24,36 @@ header-includes:
 - \usetikzlibrary{matrix}
 ---
 
+```{r setUp, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, echo=FALSE}
+library(rstan)
+library(dplyr)
+library(magrittr)
+library(gridExtra)
+library(ggplot2)
+```
+
+```{r exposeStanFunctions, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE, echo=FALSE, results="hide"}
+expose_stan_functions("./bowling.stan") # Compiles the C++ function and caches it
+```
 \vspace{0.25in}
-The original bowling model is simple we have 2 frames in one go. We knock down as many pins as we can in the first frame and then if some are left we knock down some more. We are given some data of a sequence of frames(called a roll). We are given the PMF of the dropping X pins as follows:
+The original bowling model is simple we get 2 frames in one go to knock off all 10 pins. We are given some data of a sequence of frames(called a roll). We are given the PMF of the dropping X pins as follows:
 
-$$ P(X=x|\gamma, n) = \frac{F(\gamma+x)}{F(n+\gamma+2) * F(\gamma+1)} $$
+$$ P(X=x|\gamma, n) = \frac{F(\gamma+x)}{F(n+\gamma+2)  -  F(\gamma+1)} $$
 
-Where gamma can be a constant or can come from some distribution. X $\in$ 1:10 
+Where gamma can be a constant or can come from some distribution. X $\in$ 1:10. What purpose does gamma serve?
+
+```{r}
+x = 0:7
+gs = seq(-1, 1, 0.1)
+d = data.frame()
+for (g in gs) {
+    d = rbind(d, data.frame(x=as.integer(x), g=g, f=Vectorize(F)(x+g)/(Vectorize(F)(g+12) - Vectorize(F)(g+1))))
+}
+d %<>% mutate(g=as.factor(g)) 
+ggplot(d %>% dplyr::filter(g %in% seq(min(gs),max(gs), .5))) + geom_line(aes(x=x, y=f, color=g))
+# TODO: hmmm seems like changing gamma has little or no effect on the PMF curve. Whats going on? Maybe look at the PMF function more closely because I was expecting gamma to have more of an effect on it.
+```
+
 
 I wanted to demonstrate a few points in this tutorial with a toy example. So here is the task. Given a fixed `gamma` and some data: 
 
@@ -38,7 +62,7 @@ I wanted to demonstrate a few points in this tutorial with a toy example. So her
 2. Learn an invaluable technique of generating data using some model and then fitting your model to recover the parameters.
 3. Make a point about Bayesian vs Frequentism thats more than pedantic.
 4. Learn a bit of stan modelling.
-5. When gamma is not constant, how do I model it?
+5. If you have gamma 
 
 TODO: I assume you are familiar with STAN or atleast BUGS/JAGS. blah blah. Link to Manual and web page.
  
@@ -56,15 +80,8 @@ unlink(tf)
 - TODO: Reference to Stan manual for code. 
 
 The model code is the most important and shows
-```{r setUp, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
-library(rstan)
-library(dplyr)
-library(magrittr)
-library(gridExtra)
-library(ggplot2)
-```
 Lets expose some of the stan code so we can call it from R. We will use it to help us generate some fake data. Yet another cool feature of stan.
-```{r exposeStanFunctions, cache.path="cache/", tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE}
+```{r exposeStanFunctions2, eval=FALSE, cache.path="cache/", tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE}
 expose_stan_functions("./bowling.stan") # Compiles the C++ function and caches it
 ```
 
@@ -103,7 +120,7 @@ data.list = list(x1 = x1, x2 = x2, nframes=length(x1))
 I chose a constant for `g.init`. OTOH I could generate many frames with a different g.init's coming from some sort of distribution. More on that later. You can recover this distribution's posterior if you know about it. Many stat models that model real life phenomenon actually generate a distribution over the hyperparams, but that requires a bit more sophisticated(although very instructive) analysis where each roll could have many distributions.
 
 Now learn the model via stan
-```{r stan, cache.path ="cache/", tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE}
+```{r stan, tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE, results="hide"}
 stan.fit = stan('./bowling.stan',
                 data = data.list,
                 iter=5000,
@@ -115,7 +132,7 @@ stan.fit will contain the posterior samples
 
 Lets see how well we recovered the original parameter g.init from the simulation.
 
-```{r plotPosterior, cache.path ="cache/", tidy=TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE, dependson="stan"}
+```{r plotPosterior, tidy=TRUE, message = FALSE, warning = FALSE, error = FALSE, cache=TRUE, dependson="stan"}
 sims = as.data.frame(stan.fit)
 # Did we recover the value of gamma?
 p1 = ggplot(sims) + geom_density(aes(x=g)) + 
